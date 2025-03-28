@@ -288,7 +288,7 @@ void MavlinkInterface::SendSensorMessages(uint64_t time_usec) {
      assumes that sensor_id of hil_sensors message is always 0, so there
      is similar workaround in receiver end to reset the field back to zero.
   */
-  sensor_msg.id = 1;
+  sensor_msg.id = 0;
   sensor_msg.time_usec = time_usec;
   if (imu_updated_) {
     sensor_msg.xacc = accel_b_[0];

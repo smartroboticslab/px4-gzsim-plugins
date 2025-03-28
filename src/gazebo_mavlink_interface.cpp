@@ -147,6 +147,22 @@ void GazeboMavlinkInterface::Configure(const gz::sim::Entity &_entity,
   auto cmd_vel_topic = model_name + cmd_vel_sub_topic_;
   cmd_vel_pub_ = node.Advertise<gz::msgs::Twist>(cmd_vel_topic);
 
+  // Publish to motor spped command topi
+  std::string motorSpeedCommandPubTopic = "";
+  if (_sdf->HasElement("motorSpeedCommandPubTopic"))
+  {
+    motorSpeedCommandPubTopic = _sdf->Get<std::string>("motorSpeedCommandPubTopic");
+    if (!motorSpeedCommandPubTopic.empty())
+    {
+      motor_velocity_pub_ = node.Advertise<gz::msgs::Actuators>(namespace_ + "/" + motorSpeedCommandPubTopic);
+      std::cerr << "creating publisher to publish on " << namespace_ + "/" +  motorSpeedCommandPubTopic << std::endl;
+    } else {
+      std::cerr << "[gazebo_mavlink_interface] Please specify a valid commandPubTopic, you provided: " << motorSpeedCommandPubTopic << std::endl;
+    }
+  } else {
+    std::cerr << "[gazebo_mavlink_interface] Please specify a commandPubTopic. It could not be found in the sdf." << std::endl;
+  }
+
   // Subscribe to messages of sensors.
   auto imu_topic = vehicle_scope_prefix + imu_sub_topic_;
   node.Subscribe(imu_topic, &GazeboMavlinkInterface::ImuCallback, this);
@@ -235,7 +251,7 @@ void GazeboMavlinkInterface::PreUpdate(const gz::sim::UpdateInfo &_info,
   }
 
   if (!mavlink_loaded_) {
-    // mavlink not loaded, exit
+    // mavlink not loaded, exit\
     return;
   }
 
@@ -431,52 +447,19 @@ void GazeboMavlinkInterface::handle_actuator_controls(const gz::sim::UpdateInfo 
   last_actuator_time_ = _info.simTime;
 
   Eigen::VectorXd actuator_controls = mavlink_interface_->GetActuatorControls();
-  if (actuator_controls.size() < n_out_max) return; //TODO: Handle this properly
-
-  // Read Cmd vel input for rover
-  if (actuator_controls[n_out_max - 1] != 0.0 || actuator_controls[n_out_max - 2] != 0.0) {
-    cmd_vel_thrust_ = armed ? actuator_controls[n_out_max - 1] : 0.0;
-    cmd_vel_torque_ = armed ? actuator_controls[n_out_max - 2] : 0.0;
-    input_is_cmd_vel_ = true;
-    received_first_actuator_ = mavlink_interface_->GetReceivedFirstActuator();
-    return;
-  } else {
-    input_is_cmd_vel_ = false;
-  }
-
-  // Read Input References for servos
-  if (servo_input_reference_.size() == n_out_max) {
-    unsigned n_servos = 0;
-    for (unsigned i = 0; i < n_out_max; i++) {
-      if (!mavlink_interface_->IsInputMotorAtIndex(i)) {
-        servo_input_index_[n_servos++] = i;
-      }
-    }
-    servo_input_reference_.resize(n_servos);
-  }
-
-  for (int i = 0; i < servo_input_reference_.size(); i++) {
-    if (armed) {
-      servo_input_reference_[i] = actuator_controls[servo_input_index_[i]];
-    } else {
-      servo_input_reference_[i] = 0;
-    }
+  if (actuator_controls.size() < n_out_max) {
+    return; //TODO: Handle this properly
   }
 
   // Read Input References for motors
   if (motor_input_reference_.size() == n_out_max) {
-    unsigned n_motors = 0;
-    for (unsigned i = 0; i < n_out_max; i++) {
-      if (mavlink_interface_->IsInputMotorAtIndex(i)) {
-        motor_input_index_[n_motors++] = i;
-      }
-    }
     motor_input_reference_.resize(n_motors);
+    std::cerr << "resizing motor_input_reference to " << n_motors << std::endl;
   }
 
   for (int i = 0; i < motor_input_reference_.size(); i++) {
     if (armed) {
-      motor_input_reference_[i] = actuator_controls[motor_input_index_[i]] * motor_vel_scalings_[i];
+      motor_input_reference_[i] = actuator_controls[i];
     } else {
       motor_input_reference_[i] = 0;
     }
@@ -505,31 +488,10 @@ void GazeboMavlinkInterface::PublishMotorVelocities(
   }
   for (int i = 0; i < _vels.size(); ++i)
   {
-    motor_velocity_message_.set_velocity(i, _vels(i));
+    motor_velocity_message_.set_velocity(i, _vels(i) * 1000);
   }
-  // Publish the message by setting the Actuators component on the model entity.
-  // This assumes that the MulticopterMotorModel system is attached to this
-  // model
-  auto actuatorMsgComp =
-      _ecm.Component<gz::sim::components::Actuators>(model_.Entity());
-
-  if (actuatorMsgComp)
-  {
-    auto compFunc = [](const gz::msgs::Actuators &_a, const gz::msgs::Actuators &_b)
-    {
-      return std::equal(_a.velocity().begin(), _a.velocity().end(),
-                        _b.velocity().begin());
-    };
-    auto state = actuatorMsgComp->SetData(this->motor_velocity_message_, compFunc)
-                     ? gz::sim::ComponentState::PeriodicChange
-                     : gz::sim::ComponentState::NoChange;
-    _ecm.SetChanged(model_.Entity(), gz::sim::components::Actuators::typeId, state);
-  }
-  else
-  {
-    _ecm.CreateComponent(model_.Entity(),
-                         gz::sim::components::Actuators(this->motor_velocity_message_));
-  }
+  
+  motor_velocity_pub_.Publish(motor_velocity_message_);
 }
 
 void GazeboMavlinkInterface::PublishServoVelocities(const Eigen::VectorXd &_vels)

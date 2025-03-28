@@ -162,6 +162,7 @@ namespace mavlink_interface
       void ParseMulticopterMotorModelPlugins(const std::string &sdfFilePath);
 
       static const unsigned n_out_max = 16;
+      static const unsigned n_motors = 4;
 
       double input_offset_[n_out_max];
       std::string joint_control_type_[n_out_max];
@@ -176,6 +177,7 @@ namespace mavlink_interface
       /// \brief gz communication node and publishers.
       gz::transport::Node node;
       gz::transport::Node::Publisher servo_control_pub_[n_out_max];
+      gz::transport::Node::Publisher motor_velocity_pub_;
       gz::transport::Node::Publisher cmd_vel_pub_;
 
       std::string pose_sub_topic_{kDefaultPoseTopic};
